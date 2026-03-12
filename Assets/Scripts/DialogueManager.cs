@@ -2,112 +2,128 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 using System.Collections;
+using System.Collections.Generic;
 
 public class DialogueManager : MonoBehaviour
 {
+    [Header("UI References")]
     public TextMeshProUGUI dialogueText;
     public TextMeshProUGUI speakerName;
-
     public Image sharkSpeaker;
 
-    public Sprite financieroSprite;
-    public Sprite ejecutivoSprite;
-    public Sprite visionarioSprite;
+    [Header("Sprites por Agent ID")]
+    public Sprite financialHawkSprite;   // agent_id: "financial_hawk"
+    public Sprite techVisionarySprite;   // agent_id: "tech_visionary"
+    public Sprite theSharkSprite;        // agent_id: "the_shark"
 
-    public TMP_InputField pitchInput;
-
+    [Header("UI Panels")]
     public GameObject pitchPanel;
     public GameObject dialogueBox;
 
-    public float autoAdvanceTime = 10f;
+    [Header("Input")]
+    public TMP_InputField pitchInput;
+    public Button sendButton;
 
-    string[] speakers =
-    {
-        "financiero",
-        "ejecutivo",
-        "visionario",
-        "ejecutivo"
-    };
+    [Header("Settings")]
+    public float delayBetweenMessages = 2f;
 
-    string[] dialogueLines =
-    {
-        "Let's take a look at the financial potential of this idea.",
-        "Tell us more about how this business operates.",
-        "I'm curious about what makes this idea unique.",
-        "Alright, let's analyze this pitch."
-    };
+    // Cola de mensajes pendientes de mostrar
+    private Queue<AgentMessage> messageQueue = new Queue<AgentMessage>();
+    private bool isShowingMessages = false;
 
-    int currentLine = 0;
-
-    bool pitchSubmitted = false;
+    // Referencia al manager principal
+    private SharkTankUIManager uiManager;
 
     void Start()
     {
         dialogueBox.SetActive(false);
         pitchPanel.SetActive(true);
+
+        uiManager = FindObjectOfType<SharkTankUIManager>();
+
+        if (sendButton != null)
+            sendButton.onClick.AddListener(OnSendClicked);
     }
 
-    public void NextDialogue()
+    // Llamado cuando el usuario presiona Send / Start Pitch
+    private void OnSendClicked()
     {
-        if (!pitchSubmitted)
+        string pitch = pitchInput != null ? pitchInput.text.Trim() : "";
+
+        if (string.IsNullOrEmpty(pitch))
         {
-            SubmitPitch();
+            Debug.LogWarning("El pitch está vacío.");
             return;
         }
 
-        if (currentLine < dialogueLines.Length)
+        // Primera vez: iniciar sesión
+        if (string.IsNullOrEmpty(uiManager.CurrentSessionId))
         {
-            ShowDialogue();
+            pitchPanel.SetActive(false);
+            dialogueBox.SetActive(true);
+
+            if (sendButton != null) sendButton.interactable = false;
+
+            uiManager.StartPitch();
+        }
+        else
+        {
+            // Turnos siguientes: enviar respuesta del entrepreneur
+            if (sendButton != null) sendButton.interactable = false;
+            uiManager.SendUserReply(pitch);
+
+            if (pitchInput != null) pitchInput.text = "";
         }
     }
 
-    void SubmitPitch()
+    // Recibe la lista de mensajes del API y los encola
+    public void DisplayMessages(List<AgentMessage> messages)
     {
-        string pitch = pitchInput.text;
+        foreach (var msg in messages)
+            messageQueue.Enqueue(msg);
 
-        Debug.Log("User pitch: " + pitch);
-
-        pitchSubmitted = true;
-
-        pitchPanel.SetActive(false);
-        dialogueBox.SetActive(true);
-
-        StartCoroutine(AutoDialogue());
+        if (!isShowingMessages)
+            StartCoroutine(ShowQueuedMessages());
     }
 
-    IEnumerator AutoDialogue()
+    private IEnumerator ShowQueuedMessages()
     {
-        while (currentLine < dialogueLines.Length)
+        isShowingMessages = true;
+
+        while (messageQueue.Count > 0)
         {
-            ShowDialogue();
-            yield return new WaitForSeconds(autoAdvanceTime);
+            AgentMessage msg = messageQueue.Dequeue();
+            ShowMessage(msg);
+            yield return new WaitForSeconds(delayBetweenMessages);
         }
+
+        isShowingMessages = false;
+
+        // Rehabilitar input cuando termina de mostrar mensajes
+        bool canReply = uiManager.CanReply;
+        if (pitchInput != null) pitchInput.interactable = canReply;
+        if (sendButton != null) sendButton.interactable = canReply;
     }
 
-    void ShowDialogue()
+    private void ShowMessage(AgentMessage msg)
     {
-        dialogueText.text = dialogueLines[currentLine];
+        dialogueText.text = msg.text;
+        speakerName.text = msg.agent_name;
+        sharkSpeaker.sprite = GetSpriteForAgent(msg.agent_id);
 
-        string speaker = speakers[currentLine];
+        Debug.Log($"[DialogueManager] Mostrando: {msg.agent_name} -> {msg.text}");
+    }
 
-        if (speaker == "financiero")
+    private Sprite GetSpriteForAgent(string agentId)
+    {
+        switch (agentId)
         {
-            sharkSpeaker.sprite = financieroSprite;
-            speakerName.text = "FINANCIERO";
+            case "financial_hawk":  return financialHawkSprite;
+            case "tech_visionary":  return techVisionarySprite;
+            case "the_shark":       return theSharkSprite;
+            default:
+                Debug.LogWarning($"No sprite encontrado para agent_id: {agentId}");
+                return null;
         }
-
-        if (speaker == "ejecutivo")
-        {
-            sharkSpeaker.sprite = ejecutivoSprite;
-            speakerName.text = "EJECUTIVO";
-        }
-
-        if (speaker == "visionario")
-        {
-            sharkSpeaker.sprite = visionarioSprite;
-            speakerName.text = "VISIONARIO";
-        }
-
-        currentLine++;
     }
 }
